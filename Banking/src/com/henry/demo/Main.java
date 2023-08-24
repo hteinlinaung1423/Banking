@@ -36,7 +36,7 @@ public class Main {
 
 		} while (action != 'q' && action != 'Q');
 
-		System.out.println("Thank you for banking with AwesomeGIC Bank.\r\n" + "Have a nice day!");
+		System.out.println("\r\nThank you for banking with AwesomeGIC Bank.\r\n" + "Have a nice day!");
 		reader.close();
 	}
 
@@ -69,15 +69,16 @@ public class Main {
 												item.getTxnId(), item.getTransactionType(), item.getAmount()));
 							}
 							input = "";
+							System.out.println();
 						} catch (BalanceNotEnoughException e) {
 
-							System.out.println(e.getMessage());
+							System.out.println(e.getMessage()+"\r\n");
 						} catch (Exception e) {
 
-							System.out.println(e.getMessage());
+							System.out.println(e.getMessage()+"\r\n");
 						}
 					} else {
-						System.out.println(message);
+						System.out.println(message+"\r\n");
 					}
 				}
 			} while (input.length() > 0);
@@ -103,11 +104,12 @@ public class Main {
 										formatter.format(item.getTxnDate()), item.getRuleId(), item.getRate()));
 							}
 							input = "";
+							System.out.println();
 						} catch (Exception e) {
-							System.out.println(e.getMessage());
+							System.out.println(e.getMessage()+"\r\n");
 						}
 					} else {
-						System.out.println(message);
+						System.out.println(message+"\r\n");
 					}
 				}
 
@@ -134,12 +136,13 @@ public class Main {
 										df.format(item.getAmount()), df.format(item.getBalance())));
 							}
 							input = "";
+							System.out.println();
 						} catch (Exception e) {
-							System.out.println(e.getMessage());
+							System.out.println(e.getMessage()+"\r\n");
 						}
 
 					} else {
-						System.out.println(message);
+						System.out.println(message+"\r\n");
 					}
 				}
 

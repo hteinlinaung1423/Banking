@@ -1,12 +1,10 @@
 package com.henry.demo.service;
 
-import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -15,11 +13,11 @@ import com.henry.demo.domain.InterestRule;
 import com.henry.demo.domain.Transaction;
 import com.henry.demo.domain.TransactionTypeEnum;
 import com.henry.demo.exception.BalanceNotEnoughException;
+import com.henry.demo.exception.InterestRateNotFoundException;
 
 public class TransactionServiceImpl implements TransactionService {
 
 	SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
-	private static final DecimalFormat df = new DecimalFormat("0.00");
 	int runningNumber = 1;
 	AccountService accService;
 	InterestService interestService;
@@ -117,108 +115,123 @@ public class TransactionServiceImpl implements TransactionService {
 		InterestRule previousRule = interestService.getLatestInterestRuleLessThanGivenMonth(month);
 		InterestRule currentRule = givenMonthRule.size() < 1 ? previousRule : givenMonthRule.get(0);
 
+		if (previousRule == null || currentRule == null) {
+			throw new InterestRateNotFoundException("Please define interest rate for at lease two different months!");
+		} else {
+
+			List<Transaction> itemList = transactionList.stream().filter(t -> t.getAccountId().equals(accountId))
+					.toList();
+			// for transaction list
+			for (Transaction txn : itemList) {
+				Date date = Date.from(txn.getTxnDate());
+				calendar.setTime(date);
+				// calendar month start from 0, so need to add 1
+				if (calendar.get(Calendar.YEAR) == year && calendar.get(Calendar.MONTH) + 1 == month) {
+					filterList.add(txn);
+					monthMaxDays = calendar.getActualMaximum(Calendar.DAY_OF_MONTH);
+				}
+			}
+
+			// for interest rate
+			double eodBalance = 0;
+			double count = 0;
+			double rate = 0;
+			double total = 0;
+			Instant lastDay = null;
+			for (int j = 1; j <= monthMaxDays; j++) {
+				count++;
+				String sDate = String.format("%1$s%2$s%3$s", year, month < 10 ? "0" + month : month,
+						j < 10 ? "0" + j : j);
+				Date date = sdf.parse(sDate);
+				Instant txnDate = date.toInstant();
+
+				List<Transaction> currentTxnList = filterList.stream().filter(t -> t.getTxnDate().equals(txnDate))
+						.toList();
+
+				// System.out.println("currentTxnList " + currentTxnList.size());
+				if (j == monthMaxDays)
+					lastDay = txnDate;
+
+				// more than 1 transaction
+				if (currentTxnList.size() > 1) {
+					Transaction currentTxn = currentTxnList.stream()
+							.sorted((o1, o2) -> o1.getTxnId().compareTo(o2.getTxnId())).collect(Collectors.toList())
+							.get(currentTxnList.size() - 1);
+					if (currentTxn.getTxnDate().isBefore(currentRule.getTxnDate())) {
+						rate = previousRule.getRate() / 100;
+						if (eodBalance == 0) {
+							eodBalance = currentTxn.getBalance();
+						} else if (eodBalance != currentTxn.getBalance()) {
+							total += eodBalance * rate * (count - 1);
+							eodBalance = currentTxn.getBalance();
+							count = 1;
+							// System.out.println("1 Calcuate Multiple before Total " + total);
+						}
+					} else {
+						rate = currentRule.getRate() / 100;
+						if (eodBalance == 0) {
+							eodBalance = currentTxn.getBalance();
+						} else if (eodBalance != currentTxn.getBalance()) {
+							total += eodBalance * rate * (count - 1);
+							eodBalance = currentTxn.getBalance();
+							count = 1;
+							// System.out.println("1 Calcuate Multiple After Total " + total);
+						}
+					}
+				}
+				// only one transaction
+				else if (currentTxnList.size() == 1) {
+					Transaction currentTxn = currentTxnList.get(0);
+					if (currentTxn.getTxnDate().isBefore(currentRule.getTxnDate())) {
+						rate = previousRule.getRate() / 100;
+						if (eodBalance == 0) {
+							eodBalance = currentTxn.getBalance();
+						} else if (eodBalance != currentTxn.getBalance()) {
+							total += eodBalance * rate * (count - 1);
+							eodBalance = currentTxn.getBalance();
+							count = 1;
+							// System.out.println("2 Calcuate Single Before Total " + total);
+						}
+					} else {
+						rate = currentRule.getRate() / 100;
+						if (eodBalance == 0) {
+							eodBalance = currentTxn.getBalance();
+						} else if (eodBalance != currentTxn.getBalance()) {
+							total += eodBalance * rate * (count - 1);
+							eodBalance = currentTxn.getBalance();
+							count = 1;
+							// System.out.println("2 Calcuate Single After Total " + total);
+						}
+					}
+				} else {
+					if (txnDate.isBefore(currentRule.getTxnDate())) {
+						rate = previousRule.getRate() / 100;
+						total += eodBalance * rate * (count);
+						count = 0;
+						// System.out.println("3 Calcuate Before Total " + total);
+					} else {
+						rate = currentRule.getRate() / 100;
+						total += eodBalance * rate * (count);
+						count = 0;
+						// System.out.println("3 Calcuate After Total " + total);
+					}
+				}
+			}
+			// System.out.println("Total " + total);
+			if (lastDay != null) {
+				total = total / 365;
+
+				// System.out.println("Total interest: " + df.format(total));
+				Transaction interestTxn = new Transaction(lastDay, total, "", TransactionTypeEnum.I, accountId,
+						eodBalance + total);
+
+				filterList.add(interestTxn);
+			}
+
+		}
+
 		// System.out.println(givenMonthRule.size());
 		// System.out.println(previousRule.getRuleId());
-
-		List<Transaction> itemList = transactionList.stream().filter(t -> t.getAccountId().equals(accountId)).toList();
-		for (Transaction txn : itemList) {
-			Date date = Date.from(txn.getTxnDate());
-			calendar.setTime(date);
-			// calendar month start from 0, so need to add 1
-			if (calendar.get(Calendar.YEAR) == year && calendar.get(Calendar.MONTH) + 1 == month) {
-				filterList.add(txn);
-				monthMaxDays = calendar.getActualMaximum(Calendar.DAY_OF_MONTH);
-			}
-		}
-
-		double eodBalance = 0;
-		double count = 0;
-		double rate = 0;
-		double total = 0;
-		Instant lastDay = null;
-		for (int j = 1; j <= monthMaxDays; j++) {
-			count++;
-			String sDate = String.format("%1$s%2$s%3$s", year, month < 10 ? "0" + month : month, j < 10 ? "0" + j : j);
-			Date date = sdf.parse(sDate);
-			Instant txnDate = date.toInstant();
-
-			List<Transaction> currentTxnList = filterList.stream().filter(t -> t.getTxnDate().equals(txnDate)).toList();
-
-			// System.out.println("currentTxnList " + currentTxnList.size());
-			if (j == monthMaxDays)
-				lastDay = txnDate;
-
-			// more than 1 transaction
-			if (currentTxnList.size() > 1) {
-				Transaction currentTxn = currentTxnList.stream()
-						.sorted((o1, o2) -> o1.getTxnId().compareTo(o2.getTxnId())).collect(Collectors.toList())
-						.get(currentTxnList.size() - 1);
-				if (currentTxn.getTxnDate().isBefore(currentRule.getTxnDate())) {
-					rate = previousRule.getRate() / 100;
-					if (eodBalance == 0) {
-						eodBalance = currentTxn.getBalance();
-					} else if (eodBalance != currentTxn.getBalance()) {
-						total += eodBalance * rate * (count - 1);
-						eodBalance = currentTxn.getBalance();
-						count = 1;
-						// System.out.println("1 Calcuate Multiple before Total " + total);
-					}
-				} else {
-					rate = currentRule.getRate() / 100;
-					if (eodBalance == 0) {
-						eodBalance = currentTxn.getBalance();
-					} else if (eodBalance != currentTxn.getBalance()) {
-						total += eodBalance * rate * (count - 1);
-						eodBalance = currentTxn.getBalance();
-						count = 1;
-						// System.out.println("1 Calcuate Multiple After Total " + total);
-					}
-				}
-			}
-			// only one transaction
-			else if (currentTxnList.size() == 1) {
-				Transaction currentTxn = currentTxnList.get(0);
-				if (currentTxn.getTxnDate().isBefore(currentRule.getTxnDate())) {
-					rate = previousRule.getRate() / 100;
-					if (eodBalance == 0) {
-						eodBalance = currentTxn.getBalance();
-					} else if (eodBalance != currentTxn.getBalance()) {
-						total += eodBalance * rate * (count - 1);
-						eodBalance = currentTxn.getBalance();
-						count = 1;
-						// System.out.println("2 Calcuate Single Before Total " + total);
-					}
-				} else {
-					rate = currentRule.getRate() / 100;
-					if (eodBalance == 0) {
-						eodBalance = currentTxn.getBalance();
-					} else if (eodBalance != currentTxn.getBalance()) {
-						total += eodBalance * rate * (count - 1);
-						eodBalance = currentTxn.getBalance();
-						count = 1;
-						// System.out.println("2 Calcuate Single After Total " + total);
-					}
-				}
-			} else {
-				if (txnDate.isBefore(currentRule.getTxnDate())) {
-					rate = previousRule.getRate() / 100;
-					total += eodBalance * rate * (count);
-					count = 0;
-					// System.out.println("3 Calcuate Before Total " + total);
-				} else {
-					rate = currentRule.getRate() / 100;
-					total += eodBalance * rate * (count);
-					count = 0;
-					// System.out.println("3 Calcuate After Total " + total);
-				}
-			}
-		}
-		// System.out.println("Total " + total);
-		total = total / 365;
-		// System.out.println("Total interest: " + df.format(total));
-		Transaction interestTxn = new Transaction(lastDay, total, "", TransactionTypeEnum.I, accountId,
-				eodBalance + total);
-		filterList.add(interestTxn);
 
 		return filterList;
 	}
